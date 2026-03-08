@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sex bomb detective</title>
+    <style>
+        :root { --tile-size: 32px; }
+        body { background: #121212; color: #eee; font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; padding: 0; margin: 0; overflow: hidden; height: 100vh; width: 100vw; }
+
+        #menu-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 200; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .menu-card { background: #222; padding: 40px; border-radius: 15px; border: 2px solid #444; text-align: center; }
+        .btn-group {
+		            display: flex;
+		            flex-direction: column; /* This places buttons below each other */
+		            gap: 15px;
+		            margin-top: 25px;
+        }
+        .diff-btn { cursor: pointer; padding: 12px 24px; border: none; font-weight: bold; border-radius: 5px; font-size: 1rem; transition: 0.2s; }
+        .easy { background: #4caf50; color: white; }
+        .medium { background: #ff9800; color: white; }
+        .hard { background: #f44336; color: white; }
+
+        .header { margin: 15px 0; background: #222; padding: 10px 20px; border-radius: 8px; border: 1px solid #444; display: flex; gap: 25px; align-items: center; z-index: 10; }
+
+        #game-viewport { position: relative; width: 320px; height: 640px; background: #000; border: 4px solid #444; transition: all 0.8s ease-in-out; z-index: 5; }
+        #image-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; filter: blur(15px); opacity: 0.4; transition: all 1s ease; object-fit: cover; }
+        #grid { position: relative; display: grid; z-index: 2; width: 100%; height: 100%; }
+
+        .tile { width: var(--tile-size); height: var(--tile-size); background: #2c2c2c; border: 1px solid #3d3d3d; box-sizing: border-box; display: flex; align-items: center; justify-content: center; font-weight: bold; cursor: pointer; }
+        .tile.revealed { background: transparent; border: 1px solid rgba(255,255,255,0.05); }
+
+        /* --- WIN STATE --- */
+        body.won h1, body.won .header { visibility: hidden; opacity: 0; pointer-events: none; }
+        body.won #game-viewport { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; border: none; z-index: 100; }
+        body.won #image-layer { filter: blur(0px); opacity: 1; object-fit: contain; background: #000; }
+        body.won .tile { border: none !important; background: transparent !important; color: transparent !important; }
+        body.won .tile svg { display: none !important; }
+
+        #return-btn { display: none; position: fixed; bottom: 30px; right: 30px; padding: 12px 24px; background: rgba(0, 0, 0, 0.6); color: white; font-weight: bold; border-radius: 50px; border: 1px solid rgba(255,255,255,0.4); cursor: pointer; z-index: 150; }
+        body.won #return-btn { display: block; }
+
+        .n1 { color: #4fc3f7; } .n2 { color: #81c784; } .n3 { color: #ff8a65; } .n4 { color: #ba68c8; }
+    </style>
+</head>
+<body>
+
+    <div id="menu-overlay">
+        <div class="menu-card">
+            <img src="image/sexbombdetective.png" width="200" height="200">
+            <div class="btn-group">
+                <button class="diff-btn easy" onclick="startGame(10)">EASY (10 bombs)</button>
+                <button class="diff-btn medium" onclick="startGame(15)">MEDIUM (15 bombs)</button>
+                <button class="diff-btn hard" onclick="startGame(20)">HARD (20 bombs)</button>
+            </div>
+        </div>
+    </div>
+
+    <h1>Sex Bomb Detective</h1>
+
+    <div class="header">
+        <div class="stat-box">MINES: <span id="mine-display">0</span></div>
+        <div class="stat-box">FLAGS: <span id="flag-count">0</span></div>
+    </div>
+
+    <div id="game-viewport">
+        <img id="image-layer" src="" alt="Hidden Image">
+        <div id="grid"></div>
+    </div>
+
+    <button id="return-btn" onclick="showMenu()">NEXT MISSION</button>
+
+    <script>
+        const ROWS = 20, COLS = 10;
+        let currentMines = 10;
+        let board = [], flagsPlanted = 0, gameOver = false;
+
+        const grid = document.getElementById('grid');
+        const imgLayer = document.getElementById('image-layer');
+        const flagCountDisplay = document.getElementById('flag-count');
+        const mineDisplay = document.getElementById('mine-display');
+        const menuOverlay = document.getElementById('menu-overlay');
+
+        const FLAG_SVG = `<svg width="16" height="16" viewBox="0 0 24 24"><path d="M5 2v20h2v-8h12l-3-6 3-6h-12z" fill="#ff4d4d"/></svg>`;
+        const MINE_SVG = `<svg width="20" height="20" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="black"/><path d="M12 2v4M2 12h4M12 18v4M18 12h4" stroke="white" stroke-width="2"/></svg>`;
+
+        function startGame(difficulty) {
+            currentMines = difficulty;
+            mineDisplay.innerText = difficulty;
+            menuOverlay.style.display = "none";
+            resetGame();
+        }
+
+        function showMenu() {
+            menuOverlay.style.display = "flex";
+            document.body.classList.remove('won');
+        }
+
+        function resetGame() {
+            document.body.classList.remove('won');
+            board = []; flagsPlanted = 0; gameOver = false;
+            grid.innerHTML = "";
+            flagCountDisplay.innerText = "0";
+
+            let randomNum = Math.floor(Math.random() * 53) + 1;
+            let formattedNum = randomNum.toString().padStart(2, '0');
+            imgLayer.src = `https://md19811.github.io/Manillen/randomM/${formattedNum}.jpg`;
+
+            initBoard();
+        }
+
+        function initBoard() {
+            grid.style.gridTemplateColumns = `repeat(${COLS}, var(--tile-size))`;
+            for (let r = 0; r < ROWS; r++) {
+                board[r] = [];
+                for (let c = 0; c < COLS; c++) {
+                    const el = document.createElement('div');
+                    el.classList.add('tile');
+                    el.onmousedown = (e) => {
+                        if (e.button === 0) reveal(r, c);
+                        if (e.button === 2) { e.preventDefault(); toggleFlag(r, c); }
+                    };
+                    el.oncontextmenu = (e) => e.preventDefault();
+                    grid.appendChild(el);
+                    board[r][c] = { isMine: false, revealed: false, flagged: false, count: 0, el: el };
+                }
+            }
+            let planted = 0;
+            while (planted < currentMines) {
+                let r = Math.floor(Math.random()*ROWS), c = Math.floor(Math.random()*COLS);
+                if (!board[r][c].isMine) { board[r][c].isMine = true; planted++; }
+            }
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    if (board[r][c].isMine) continue;
+                    let count = 0;
+                    for (let dr=-1; dr<=1; dr++) {
+                        for (let dc=-1; dc<=1; dc++) {
+                            if (board[r+dr]?.[c+dc]?.isMine) count++;
+                        }
+                    }
+                    board[r][c].count = count;
+                }
+            }
+        }
+
+        function toggleFlag(r, c) {
+            if (gameOver || board[r][c].revealed) return;
+            let tile = board[r][c];
+            tile.flagged = !tile.flagged;
+            tile.el.innerHTML = tile.flagged ? FLAG_SVG : "";
+            flagsPlanted += tile.flagged ? 1 : -1;
+            flagCountDisplay.innerText = flagsPlanted;
+        }
+
+        function reveal(r, c) {
+            if (gameOver || board[r][c].revealed || board[r][c].flagged) return;
+
+            let tile = board[r][c];
+            tile.revealed = true;
+            tile.el.classList.add('revealed');
+            tile.el.innerHTML = "";
+
+            if (tile.isMine) {
+                tile.el.innerHTML = MINE_SVG;
+                gameOver = true;
+                setTimeout(() => { alert("BOOM! Mission Failed."); showMenu(); }, 100);
+                return;
+            }
+
+            if (tile.count > 0) {
+                tile.el.innerText = tile.count;
+                tile.el.classList.add('n' + tile.count);
+            } else {
+                for (let dr=-1; dr<=1; dr++) {
+                    for (let dc=-1; dc<=1; dc++) {
+                        if (board[r+dr]?.[c+dc]) reveal(r+dr, c+dc);
+                    }
+                }
+            }
+
+            checkWin();
+            gameover = false;
+            // Check only AFTER the tile is processed
+        }
+
+        function checkWin() {
+            let hiddenSafeTiles = 0;
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    // If it's NOT a mine and it hasn't been revealed yet
+                    if (!board[r][c].isMine && !board[r][c].revealed) {
+                        hiddenSafeTiles++;
+                    }
+                }
+            }
+
+            // If no hidden safe tiles remain, the player wins
+            if (hiddenSafeTiles == 0 && !gameOver) {
+                win();
+            }
+        }
+
+        function win() {
+            gameOver = true;
+            document.body.classList.add('won');
+        }
+    </script>
+</body>
+</html>
